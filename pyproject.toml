@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-podman"
+dynamic = ["version"]
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "mcp>=2.0",
+    "starlette>=1.8",
+    "uvicorn>=0.48",
+]
+
+[project.scripts]
+claude-podman = "claude_podman.cli:main"
+claude-podman-mcp = "mcp_podman.server:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "claude_podman.__version__.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["claude_podman*", "mcp_podman*"]
+
+[tool.setuptools.package-data]
+claude_podman = [
+    "Containerfile",
+    "sandbox-rules.md",
+    "agents/*.md",
+    "commands/*.md",
+]

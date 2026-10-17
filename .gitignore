@@ -1,0 +1,7 @@
+.claude-podman-*/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+venv/
+venv-claude/
