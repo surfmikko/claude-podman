@@ -16,7 +16,7 @@ claude-podman ~/projects/myapp # run in a specific directory
 The CLI starts the Podman machine and builds the container image on
 first run; no separate build step is needed.
 
-Requires macOS, Podman 4.1+ (`brew install podman`), Python 3.10+.
+Requires macOS, Podman 4.1+ (`brew install podman`), Python 3.9+.
 There is no `claude` on the host — it only runs inside the container,
 so each sandboxed session logs in on its own by default (run
 `claude /login` inside it the first time you use it). Run
@@ -30,7 +30,7 @@ session injects as `CLAUDE_CODE_OAUTH_TOKEN`.
 - `claude_podman` — host CLI that manages the container lifecycle
   (start Podman, generate a per-session bearer token, run the
   container, clean up on exit).
-- `mcp_podman` — MCP server on the host, reached via
+- `mcp_podman` — opt-in (`--mcp-podman`) MCP server on the host, reached via
   `host.containers.internal`, giving the sandboxed Claude a narrow,
   session-scoped set of Podman tools (`container_run`, `container_build`,
   `container_stop`, `container_remove`, `container_logs`,

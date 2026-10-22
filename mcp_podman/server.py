@@ -2,6 +2,7 @@ import hmac
 import os
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 from mcp.server.mcpserver import MCPServer
 from starlette.responses import PlainTextResponse
@@ -47,7 +48,7 @@ def _podman(*args: str) -> tuple[int, str, str]:
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 
 
-def _resolve_in_project(rel: str) -> Path | None:
+def _resolve_in_project(rel: str) -> Optional[Path]:
     """Translate a sandbox path to a host path inside _PROJECT_ROOT.
 
     Accepts /project-relative or bare-relative forms; rejects anything
@@ -83,7 +84,7 @@ def _is_session_container(name: str) -> bool:
     return rc == 0 and out == SESSION_ID
 
 
-def _rewrite_volume(spec: str) -> str | None:
+def _rewrite_volume(spec: str) -> Optional[str]:
     """Rewrite a volume spec so the source path is on the host.
 
     Accepts specs of the form  source:target[:options]  where source is
@@ -106,10 +107,10 @@ def _rewrite_volume(spec: str) -> str | None:
 @mcp.tool()
 def container_run(
     image: str,
-    name: str | None = None,
-    ports: list[str] | None = None,
-    env: dict[str, str] | None = None,
-    volumes: list[str] | None = None,
+    name: Optional[str] = None,
+    ports: Optional[list[str]] = None,
+    env: Optional[dict[str, str]] = None,
+    volumes: Optional[list[str]] = None,
 ) -> str:
     """Start a detached container for this session.
 
@@ -138,7 +139,7 @@ def container_run(
 @mcp.tool()
 def container_build(
     context: str = ".",
-    containerfile: str | None = None,
+    containerfile: Optional[str] = None,
     tag: str = "latest",
 ) -> str:
     """Build an image from a Containerfile inside /project.

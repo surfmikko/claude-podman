@@ -11,6 +11,7 @@ import time
 import types
 import uuid
 from pathlib import Path
+from typing import Optional
 
 from claude_podman import SESSION_LABEL_KEY, SESSION_IMAGE_PREFIX
 from claude_podman.__version__ import __version__
@@ -179,26 +180,30 @@ def _start_mcp_server(
     return proc, Path(log_path)
 
 
-def _write_mcp_config(port: int, token: str, path: Path) -> None:
+def _write_claude_config(
+    mcp: Optional[tuple[int, str]], path: Path
+) -> None:
     config = {
         # Skips the first-launch wizard (theme picker, trust dialog,
         # login screen), which otherwise runs unconditionally whenever
         # this is unset/false, regardless of settings.json/projects
         # below or a CLAUDE_CODE_OAUTH_TOKEN already being valid.
         "hasCompletedOnboarding": True,
-        "mcpServers": {
-            "podman": {
-                "type": "http",
-                "url": f"http://host.containers.internal:{port}/mcp",
-                "headers": {"Authorization": f"Bearer {token}"},
-            },
-        },
         # "/project" is the fixed mount point inside the container
         # (see _run), not the host path — always safe to pre-trust.
         "projects": {
             "/project": {"hasTrustDialogAccepted": True},
         },
     }
+    if mcp:
+        port, token = mcp
+        config["mcpServers"] = {
+            "podman": {
+                "type": "http",
+                "url": f"http://host.containers.internal:{port}/mcp",
+                "headers": {"Authorization": f"Bearer {token}"},
+            },
+        }
     path.write_text(json.dumps(config, indent=2))
 
 
@@ -289,23 +294,28 @@ def _git_identity_env(project_dir: Path) -> list[str]:
     return args
 
 
-def _run(project_dir: Path) -> None:
+def _run(project_dir: Path, use_mcp: bool) -> None:
     session_id = uuid.uuid4().hex
-    port = _free_port()
-    token = secrets.token_hex(32)
+    mcp_proc = None
+    mcp_log = None
+    mcp = None
 
-    print(f"Starting MCP server on port {port}...", flush=True)
-    mcp_proc, mcp_log = _start_mcp_server(
-        session_id, port, project_dir, token
-    )
+    if use_mcp:
+        port = _free_port()
+        token = secrets.token_hex(32)
+        print(f"Starting MCP server on port {port}...", flush=True)
+        mcp_proc, mcp_log = _start_mcp_server(
+            session_id, port, project_dir, token
+        )
 
-    if not _wait_for_port(port):
-        mcp_proc.terminate()
-        output = mcp_log.read_text(errors="replace").strip()
-        mcp_log.unlink(missing_ok=True)
-        if output:
-            print(output, file=sys.stderr)
-        sys.exit("error: MCP server did not start in time")
+        if not _wait_for_port(port):
+            mcp_proc.terminate()
+            output = mcp_log.read_text(errors="replace").strip()
+            mcp_log.unlink(missing_ok=True)
+            if output:
+                print(output, file=sys.stderr)
+            sys.exit("error: MCP server did not start in time")
+        mcp = (port, token)
 
     _CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     session_dir = _CACHE_ROOT / f"{project_dir.name}-{session_id}"
@@ -313,7 +323,7 @@ def _run(project_dir: Path) -> None:
     try:
         session_dir.mkdir()
         config_file = session_dir / "claude.json"
-        _write_mcp_config(port, token, config_file)
+        _write_claude_config(mcp, config_file)
 
         session_claude = session_dir / "claude"
         session_claude.mkdir()
@@ -326,12 +336,13 @@ def _run(project_dir: Path) -> None:
 
         cmd = [
             "podman", "run", "--rm", "-it",
-            "--add-host=host.containers.internal:host-gateway",
             "-v", f"{project_dir}:/project",
             "-v", f"{session_claude}:/home/node/.claude",
             "-v", f"{config_file}:/home/node/.claude.json",
             "--workdir", "/project",
         ]
+        if mcp:
+            cmd += ["--add-host=host.containers.internal:host-gateway"]
         cmd += _git_identity_env(project_dir)
 
         if _TOKEN_FILE.exists():
@@ -349,8 +360,9 @@ def _run(project_dir: Path) -> None:
 
         subprocess.run(cmd)
     finally:
-        mcp_proc.terminate()
-        mcp_log.unlink(missing_ok=True)
+        if mcp_proc:
+            mcp_proc.terminate()
+            mcp_log.unlink(missing_ok=True)
         _cleanup_session(session_id)
         shutil.rmtree(session_dir, ignore_errors=True)
 
@@ -389,6 +401,14 @@ def main():
             "all future sessions"
         ),
     )
+    parser.add_argument(
+        "--mcp-podman",
+        action="store_true",
+        help=(
+            "Start the Podman MCP server and give the sandboxed Claude "
+            "its session-scoped container tools (disabled by default)"
+        ),
+    )
     args = parser.parse_args()
 
     project_dir = Path(args.project_dir).resolve()
@@ -412,4 +432,4 @@ def main():
         _login()
         return
 
-    _run(project_dir)
+    _run(project_dir, args.mcp_podman)

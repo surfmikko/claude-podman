@@ -10,8 +10,8 @@ nothing else on your machine.
 without asking first. That's useful, but it means Claude can touch
 anything your user account can touch. claude-podman puts that session
 inside a container instead: it can read and write the project
-directory, and manage a small set of throwaway Podman containers
-through an MCP server, but it can't reach the rest of your filesystem
+directory, and (with `--mcp-podman`) manage a small set of throwaway
+Podman containers through an MCP server, but it can't reach the rest of your filesystem
 or credentials. It also doesn't inherit your host's Claude login:
 there's no `claude` on the host at all, only inside the container.
 
@@ -26,7 +26,7 @@ not having to log in every run.
 
 - macOS
 - [Podman](https://podman.io/) 4.1+ (`port install podman`)
-- Python 3.10+
+- Python 3.9+
 
 ## Install
 
@@ -82,7 +82,7 @@ Two packages:
   containers/images its own session created.
 
 Each run starts the Podman machine if needed, starts the MCP server
-with a per-session bearer token, and launches a container — mounting
+(only with `--mcp-podman`) with a per-session bearer token, and launches a container — mounting
 only the project directory and a throwaway, per-session `.claude`
 config directory under `~/.cache/claude-podman/` (never a host
 `~/.claude`, since there isn't one). Exiting Claude tears the
