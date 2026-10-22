@@ -301,6 +301,13 @@ def _run(project_dir: Path, use_mcp: bool) -> None:
     mcp = None
 
     if use_mcp:
+        try:
+            import mcp  # noqa: F401
+        except ImportError:
+            sys.exit(
+                "error: --mcp-podman needs the MCP dependencies "
+                "(Python 3.10+): pip install '.[mcp]'"
+            )
         port = _free_port()
         token = secrets.token_hex(32)
         print(f"Starting MCP server on port {port}...", flush=True)
@@ -341,20 +348,20 @@ def _run(project_dir: Path, use_mcp: bool) -> None:
             "-v", f"{config_file}:/home/node/.claude.json",
             "--workdir", "/project",
         ]
+        if sys.platform == "linux":
+            # Rootless Podman maps the container's node user to a
+            # subuid, so bind mounts owned by the host user would be
+            # unreadable; SELinux would deny them as well.
+            cmd += [
+                "--userns=keep-id:uid=1000,gid=1000",
+                "--security-opt", "label=disable",
+            ]
         if mcp:
             cmd += ["--add-host=host.containers.internal:host-gateway"]
         cmd += _git_identity_env(project_dir)
 
-        if _TOKEN_FILE.exists():
-            oauth_token = _TOKEN_FILE.read_text().strip()
-            cmd += ["-e", f"CLAUDE_CODE_OAUTH_TOKEN={oauth_token}"]
-        else:
-            print(
-                "No saved login — this session starts logged out; run "
-                "`claude /login` inside it, or run `claude-podman --login` "
-                "first to log in once for all future sessions.",
-                flush=True,
-            )
+        oauth_token = _TOKEN_FILE.read_text().strip()
+        cmd += ["-e", f"CLAUDE_CODE_OAUTH_TOKEN={oauth_token}"]
 
         cmd += [IMAGE_NAME, "claude", "--dangerously-skip-permissions"]
 
@@ -431,5 +438,8 @@ def main():
     if args.login:
         _login()
         return
+
+    if not _TOKEN_FILE.exists():
+        _login()
 
     _run(project_dir, args.mcp_podman)

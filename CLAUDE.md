@@ -16,14 +16,13 @@ claude-podman ~/projects/myapp # run in a specific directory
 The CLI starts the Podman machine and builds the container image on
 first run; no separate build step is needed.
 
-Requires macOS, Podman 4.1+ (`brew install podman`), Python 3.9+.
-There is no `claude` on the host — it only runs inside the container,
-so each sandboxed session logs in on its own by default (run
-`claude /login` inside it the first time you use it). Run
-`claude-podman --login` once to skip that for good: it runs
+Requires macOS, Podman 4.1+ (`brew install podman`), Python 3.9+
+(3.10+ and `pip install ".[mcp]"` for `--mcp-podman`).
+There is no `claude` on the host — it only runs inside the container.
+If `~/.cache/claude-podman/auth/token` is missing, the CLI runs
 `claude setup-token` in a throwaway container and saves the resulting
-token to `~/.cache/claude-podman/auth/token`, which every later
-session injects as `CLAUDE_CODE_OAUTH_TOKEN`.
+token there; every session injects it as `CLAUDE_CODE_OAUTH_TOKEN`.
+`claude-podman --login` redoes the login to replace the token.
 
 ## Architecture
 

@@ -15,18 +15,17 @@ Podman containers through an MCP server, but it can't reach the rest of your fil
 or credentials. It also doesn't inherit your host's Claude login:
 there's no `claude` on the host at all, only inside the container.
 
-By default each sandboxed session authenticates on its own and the
-login is thrown away when it exits. Run `claude-podman --login` once
-to skip that: it saves a long-lived token to disk and every future
-session reuses it. That trades away some isolation — the saved token
-is a standing credential a sandboxed session could exfiltrate — for
-not having to log in every run.
+On the first run, with no saved token, claude-podman logs in for you
+and saves a long-lived token to disk; every future session reuses it.
+That trades away some isolation — the saved token is a standing
+credential a sandboxed session could exfiltrate — for not having to
+log in every run.
 
 ## Requirements
 
 - macOS
 - [Podman](https://podman.io/) 4.1+ (`port install podman`)
-- Python 3.9+
+- Python 3.9+ (3.10+ for `--mcp-podman`, installed with `pip install ".[mcp]"`)
 
 ## Install
 
@@ -46,7 +45,7 @@ claude-podman                  # sandbox the current directory
 claude-podman ~/projects/myapp # sandbox a specific directory
 claude-podman --build          # force a rebuild of the container image
 claude-podman --update         # rebuild without cache, to pull the latest Claude Code
-claude-podman --login          # log in once, reused by every future session
+claude-podman --login          # log in again and replace the saved token
 ```
 
 The first run starts the Podman machine and builds the container
@@ -60,14 +59,11 @@ layer cache, which usually just replays the old install step, so it
 won't fetch a newer version — use `--update` periodically instead,
 which rebuilds with `--no-cache` to force a fresh install.
 
-Without `--login`, the container starts logged out — run
-`claude /login` inside it, same as you would on a new machine; exiting
-Claude tears the container (and that login) down, so the next run
-starts logged out again. `claude-podman --login` avoids that: it runs
+If `~/.cache/claude-podman/auth/token` is missing, claude-podman runs
 `claude setup-token` in a throwaway container, asks you to paste back
-the token it prints, and saves it to
-`~/.cache/claude-podman/auth/token`. Every later run injects that
-token automatically, so you only log in once.
+the token it prints, and saves it there. Every later run injects that
+token automatically. `claude-podman --login` repeats this to replace
+the token.
 
 ## How it works
 

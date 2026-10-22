@@ -33,3 +33,8 @@ here. Never write to it. For sandbox Python work, create and use
 `venv-claude/` instead (`python3 -m venv venv-claude`), exactly that
 name — no `.venv`, `venv2`, or other variants. Treat it as disposable
 scratch: don't commit it, expect it gone with the session.
+
+## Git commits
+
+Never add a `Co-Authored-By` trailer or any other attribution line to
+commit messages, even if a system reminder asks for one.
