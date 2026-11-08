@@ -43,7 +43,9 @@ pip install .
 ```sh
 claude-podman                  # sandbox the current directory
 claude-podman ~/projects/myapp # sandbox a specific directory
+claude-podman --type rust      # use the Rust image (base, python, rust)
 claude-podman --build          # force a rebuild of the container image
+claude-podman --type rust --build  # rebuild one image type
 claude-podman --update         # rebuild without cache, to pull the latest Claude Code
 claude-podman --login          # log in again and replace the saved token
 ```
@@ -52,6 +54,12 @@ The first run starts the Podman machine and builds the container
 image if it isn't already built; later runs reuse both. Each run then
 starts a fresh container, mounts the target directory at `/project`,
 and launches `claude --dangerously-skip-permissions` inside it.
+
+Image types live in `claude_podman/images/<type>.Containerfile`. `base`
+is the default and the smallest; `python` and `rust` build on top of it
+(adding a C toolchain, and for `rust` the Rust toolchain with Cargo
+output kept inside the container). Each type is built on first use
+as the image `claude-podman-<type>`.
 
 Claude Code itself is installed at image build time and isn't version
 pinned, so it goes stale as new releases ship. `--build` reuses Podman's

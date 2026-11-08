@@ -16,13 +16,15 @@ from typing import Optional
 from claude_podman import SESSION_LABEL_KEY, SESSION_IMAGE_PREFIX
 from claude_podman.__version__ import __version__
 
-IMAGE_NAME = "claude-podman"
+IMAGE_BASE = "claude-podman"
+DEFAULT_TYPE = "base"
 _CACHE_ROOT = Path(
     os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
 ) / "claude-podman"
 _PKG_DIR = Path(__file__).parent
 _AGENTS_DIR = _PKG_DIR / "agents"
 _COMMANDS_DIR = _PKG_DIR / "commands"
+_IMAGES_DIR = _PKG_DIR / "images"
 _SANDBOX_RULES = _PKG_DIR / "sandbox-rules.md"
 _AUTH_DIR = _CACHE_ROOT / "auth"
 _TOKEN_FILE = _AUTH_DIR / "token"
@@ -98,16 +100,41 @@ def _ensure_podman() -> None:
         sys.exit("error: Podman machine did not become ready in time")
 
 
-def _image_exists() -> bool:
+def _image_types() -> list[str]:
+    return sorted(
+        p.name.removesuffix(".Containerfile")
+        for p in _IMAGES_DIR.glob("*.Containerfile")
+    )
+
+
+def _image_name(image_type: str) -> str:
+    if image_type == DEFAULT_TYPE:
+        return IMAGE_BASE
+    return f"{IMAGE_BASE}-{image_type}"
+
+
+def _image_exists(image_type: str) -> bool:
     r = subprocess.run(
-        ["podman", "image", "exists", IMAGE_NAME],
+        ["podman", "image", "exists", _image_name(image_type)],
         capture_output=True,
     )
     return r.returncode == 0
 
 
-def _build(no_cache: bool = False) -> None:
-    cmd = ["podman", "build", "-t", IMAGE_NAME]
+def _build(image_type: str, no_cache: bool = False) -> None:
+    # Claude Code is installed in the base image, so every other type
+    # builds on top of it and needs it present (or refreshed for
+    # --update).
+    if image_type != DEFAULT_TYPE and (
+        no_cache or not _image_exists(DEFAULT_TYPE)
+    ):
+        _build(DEFAULT_TYPE, no_cache)
+    cmd = [
+        "podman", "build",
+        "-t", _image_name(image_type),
+        "-f", str(_IMAGES_DIR / f"{image_type}.Containerfile"),
+        "--build-arg", f"BASE={IMAGE_BASE}",
+    ]
     if no_cache:
         cmd.append("--no-cache")
     cmd.append(str(_PKG_DIR))
@@ -243,7 +270,7 @@ def _inject_global_memory(session_claude: Path) -> None:
     (session_claude / "CLAUDE.md").write_text(rules)
 
 
-def _login() -> None:
+def _login(image: str) -> None:
     print(
         "Starting container for `claude setup-token` — follow the "
         "browser (or paste-code) prompts it prints, then copy the "
@@ -251,7 +278,7 @@ def _login() -> None:
         flush=True,
     )
     subprocess.run(
-        ["podman", "run", "--rm", "-it", IMAGE_NAME, "claude", "setup-token"]
+        ["podman", "run", "--rm", "-it", image, "claude", "setup-token"]
     )
     token = input("Paste the token here: ").strip().strip("'\"")
     # `claude setup-token` also prints a ready-to-run
@@ -294,7 +321,7 @@ def _git_identity_env(project_dir: Path) -> list[str]:
     return args
 
 
-def _run(project_dir: Path, use_mcp: bool) -> None:
+def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
     session_id = uuid.uuid4().hex
     mcp_proc = None
     mcp_log = None
@@ -363,7 +390,7 @@ def _run(project_dir: Path, use_mcp: bool) -> None:
         oauth_token = _TOKEN_FILE.read_text().strip()
         cmd += ["-e", f"CLAUDE_CODE_OAUTH_TOKEN={oauth_token}"]
 
-        cmd += [IMAGE_NAME, "claude", "--dangerously-skip-permissions"]
+        cmd += [image, "claude", "--dangerously-skip-permissions"]
 
         subprocess.run(cmd)
     finally:
@@ -386,6 +413,12 @@ def main():
         nargs="?",
         default=".",
         help="Project directory to mount (default: .)",
+    )
+    parser.add_argument(
+        "--type",
+        choices=_image_types(),
+        default=DEFAULT_TYPE,
+        help="Container image type (default: %(default)s)",
     )
     parser.add_argument(
         "--build",
@@ -424,22 +457,25 @@ def main():
 
     _ensure_podman()
 
+    image_type = args.type
+    image = _image_name(image_type)
+
     if args.build:
-        _build()
+        _build(image_type)
         return
 
     if args.update:
-        _build(no_cache=True)
+        _build(image_type, no_cache=True)
         return
 
-    if not _image_exists():
-        _build()
+    if not _image_exists(image_type):
+        _build(image_type)
 
     if args.login:
-        _login()
+        _login(image)
         return
 
     if not _TOKEN_FILE.exists():
-        _login()
+        _login(image)
 
-    _run(project_dir, args.mcp_podman)
+    _run(project_dir, image, args.mcp_podman)

@@ -59,5 +59,8 @@ Base image: `python:3-slim-trixie`, with Node 22 (via NodeSource),
 git, make, ripgrep, and neovim (`$EDITOR`/`$VISUAL`) installed on top,
 and `claude` itself installed via the official install script. Runs
 as the `node` user.
+Other image types (`--type rust`, `--type python`) are
+`claude_podman/images/<type>.Containerfile`, layered on the base image;
+adding a file adds a type.
 For other project images prefer `debian:bookworm-slim` or an official
 service image; avoid Alpine (musl libc compatibility risk).

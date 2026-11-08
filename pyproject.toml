@@ -29,7 +29,7 @@ include = ["claude_podman*", "mcp_podman*"]
 
 [tool.setuptools.package-data]
 claude_podman = [
-    "Containerfile",
+    "images/*.Containerfile",
     "sandbox-rules.md",
     "agents/*.md",
     "commands/*.md",
