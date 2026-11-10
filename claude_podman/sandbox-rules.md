@@ -38,3 +38,13 @@ scratch: don't commit it, expect it gone with the session.
 
 Never add a `Co-Authored-By` trailer or any other attribution line to
 commit messages, even if a system reminder asks for one.
+
+## Installing tools
+
+Missing tools (databases, servers, CLIs) are installed per session by
+helper scripts in `/opt/installer/`, one per tool (`mongodb`, ...).
+When a task needs a tool that isn't installed, `ls` that directory and
+run the matching script (`/opt/installer/<tool>`) instead of using
+sudo or apt. Scripts are idempotent and install under `~/.local`. Read
+a script's header comment for usage. If none matches, say so instead
+of improvising an install.

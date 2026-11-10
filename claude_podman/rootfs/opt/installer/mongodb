@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Install a local mongod for this container session.
+
+Usage: mongodb [VERSION_PREFIX]   e.g. `mongodb 7.0` (default: latest)
+
+Downloads MongoDB's portable tarball, extracts only bin/mongod to
+~/.local/share/mongodb/<version>/ and symlinks it into ~/.local/bin.
+Nothing needs root. Does nothing if mongod is already on PATH.
+"""
+import json
+import platform
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.request
+from pathlib import Path
+
+FEED = "https://downloads.mongodb.org/current.json"
+HOME = Path.home() / ".local"
+
+
+def os_release() -> dict[str, str]:
+    lines = Path("/etc/os-release").read_text().splitlines()
+    return dict(
+        line.split("=", 1) for line in lines if "=" in line
+    )
+
+
+def target_preference() -> list[str]:
+    # Debian builds only exist for x86_64. Ubuntu builds are the
+    # fallback; oldest first since they need the oldest glibc.
+    release = os_release()
+    ver = int(release.get("VERSION_ID", "0").strip('"') or 0)
+    debian = [f"debian{n}" for n in range(ver, 9, -1)]
+    return debian + ["ubuntu2204", "ubuntu2404", "ubuntu2604"]
+
+
+def find_download(version_prefix: str) -> tuple[str, str]:
+    arch = platform.machine()
+    with urllib.request.urlopen(FEED, timeout=30) as resp:
+        feed = json.load(resp)
+    prefs = target_preference()
+    for entry in feed["versions"]:
+        if not entry["version"].startswith(version_prefix):
+            continue
+        urls = {
+            dl["target"]: dl["archive"]["url"]
+            for dl in entry["downloads"]
+            if dl["arch"] == arch
+            and "enterprise" not in dl["archive"]["url"]
+            and dl["archive"]["url"].endswith(".tgz")
+        }
+        for target in prefs:
+            if target in urls:
+                return entry["version"], urls[target]
+    sys.exit(
+        f"no mongod build for {arch} matching '{version_prefix}' "
+        f"(tried {', '.join(prefs)})"
+    )
+
+
+def extract_mongod(url: str, dest: Path) -> Path:
+    dest.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(suffix=".tgz") as tmp:
+        print(f"downloading {url}")
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            shutil.copyfileobj(resp, tmp)
+        tmp.flush()
+        with tarfile.open(tmp.name) as tar:
+            member = next(
+                m for m in tar if m.name.endswith("/bin/mongod")
+            )
+            member.name = "mongod"
+            tar.extract(member, dest, filter="data")
+    return dest / "mongod"
+
+
+def main() -> None:
+    existing = shutil.which("mongod")
+    if existing:
+        print(existing)
+        return
+    version, url = find_download(sys.argv[1] if len(sys.argv) > 1 else "")
+    binary = extract_mongod(url, HOME / "share" / "mongodb" / version)
+    link = HOME / "bin" / "mongod"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.unlink(missing_ok=True)
+    link.symlink_to(binary)
+    result = subprocess.run(
+        [str(link), "--version"], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        sys.exit(f"mongod installed but won't run:\n{result.stderr}")
+    print(f"mongod {version} -> {link}")
+
+
+if __name__ == "__main__":
+    main()
