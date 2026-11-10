@@ -11,8 +11,7 @@ ENV EDITOR=nvim
 ENV VISUAL=nvim
 ENV TERM=xterm-256color
 
-COPY plugins/statusline-footer /opt/statusline-footer
-RUN chmod -R a+rX /opt/statusline-footer
+COPY --chmod=755 rootfs/ /
 
 USER claude
 ENV PATH=/home/claude/.local/bin:$PATH

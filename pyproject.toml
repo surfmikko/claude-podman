@@ -34,7 +34,6 @@ claude_podman = [
     "statusline.sh",
     "agents/*.md",
     "commands/*.md",
-    "plugins/statusline-footer/LICENSE",
-    "plugins/statusline-footer/.claude-plugin/*.json",
-    "plugins/statusline-footer/hooks/*",
+    "rootfs/**/*",
+    "rootfs/opt/statusline-footer/.claude-plugin/*.json",
 ]
