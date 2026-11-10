@@ -1,36 +1,22 @@
 # claude-podman
 
-Run Claude Code in a sandboxed Podman container. The container gets
-read-write access to the project directory you point it at, and
-nothing else on your machine.
+Run Claude Code in a sandboxed Podman container. It gets read-write
+access to the project directory you point it at, and nothing else on
+your machine: no host `~/.claude`, no host login, no `claude` on the
+host at all. With `--mcp-podman` it can also manage a few throwaway
+Podman containers.
 
-## Why
-
-`claude --dangerously-skip-permissions` lets Claude run any command
-without asking first. That's useful, but it means Claude can touch
-anything your user account can touch. claude-podman puts that session
-inside a container instead: it can read and write the project
-directory, and (with `--mcp-podman`) manage a small set of throwaway
-Podman containers through an MCP server, but it can't reach the rest of your filesystem
-or credentials. It also doesn't inherit your host's Claude login:
-there's no `claude` on the host at all, only inside the container.
-
-On the first run, with no saved token, claude-podman logs in for you
-and saves a long-lived token to disk; every future session reuses it.
-That trades away some isolation — the saved token is a standing
-credential a sandboxed session could exfiltrate — for not having to
-log in every run.
+The one standing credential is the long-lived token saved on first run
+(see [Login](#login)); a sandboxed session could exfiltrate it.
 
 ## Requirements
 
-- macOS
-- [Podman](https://podman.io/) 4.1+ (`port install podman`)
-- Python 3.9+ (3.10+ for `--mcp-podman`, installed with `pip install ".[mcp]"`)
+- macOS or Linux
+- [Podman](https://podman.io/) 4.1+ (`brew install podman` or
+  `port install podman` on macOS)
+- Python 3.9+ (3.10+ and `pip install ".[mcp]"` for `--mcp-podman`)
 
 ## Install
-
-Install it into the project you want to sandbox, like any other
-Python tool:
 
 ```sh
 python3 -m venv venv
@@ -41,89 +27,87 @@ pip install .
 ## Usage
 
 ```sh
-claude-podman                  # sandbox the current directory
-claude-podman ~/projects/myapp # sandbox a specific directory
-claude-podman --type rust      # use the Rust image (base, python, rust)
-claude-podman --build          # force a rebuild of the container image
-claude-podman --type rust --build  # rebuild one image type
-claude-podman --update         # rebuild without cache, to pull the latest Claude Code
-claude-podman --login          # log in again and replace the saved token
+claude-podman                      # sandbox the current directory
+claude-podman ~/projects/myapp     # sandbox a specific directory
+claude-podman --type rust          # image type: base (default), python, rust
+claude-podman --mcp-podman         # also give Claude session-scoped Podman tools
+claude-podman --build              # rebuild the image (uses layer cache)
+claude-podman --update             # rebuild without cache to get the latest Claude Code
+claude-podman --login              # log in again and replace the saved token
 ```
 
-The first run starts the Podman machine and builds the container
-image if it isn't already built; later runs reuse both. Each run then
-starts a fresh container, mounts the target directory at `/project`,
-and launches `claude --dangerously-skip-permissions` inside it.
+The first run starts the Podman machine and builds the image; later
+runs reuse both. Each run starts a fresh container with the project
+mounted at `/project` and launches `claude --dangerously-skip-permissions`.
+Exiting Claude removes the container and the session's temporary
+config.
 
-Image types live in `claude_podman/images/<type>.Containerfile`. `base`
-is the default and the smallest; `python` and `rust` build on top of it
-(adding a C toolchain, and for `rust` the Rust toolchain with Cargo
-output kept inside the container). Each type is built on first use
-as the image `claude-podman-<type>`.
+### Image types
 
-Claude Code itself is installed at image build time and isn't version
-pinned, so it goes stale as new releases ship. `--build` reuses Podman's
-layer cache, which usually just replays the old install step, so it
-won't fetch a newer version — use `--update` periodically instead,
-which rebuilds with `--no-cache` to force a fresh install.
+Types live in `claude_podman/images/<type>.Containerfile` and build on
+the `base` image. `python` adds a C toolchain and linters, `rust` adds
+the Rust toolchain with Cargo output kept inside the container. Each
+is built on first use as `claude-podman-<type>`. Adding a Containerfile
+adds a type.
 
-If `~/.cache/claude-podman/auth/token` is missing, claude-podman runs
-`claude setup-token` in a throwaway container, asks you to paste back
-the token it prints, and saves it there. Every later run injects that
-token automatically. `claude-podman --login` repeats this to replace
-the token.
+Claude Code is installed at build time and not version-pinned.
+`--build` replays Podman's layer cache and so keeps the old version;
+use `--update` periodically to pull a newer one.
+
+### Tools the image doesn't have
+
+Install scripts in `claude_podman/rootfs/opt/installer/` are copied
+into the image at `/opt/installer/`, and the session's instructions
+tell Claude to run them when a task needs a missing tool. They install
+per session under `~/.local`, need no root, and vanish with the
+container. Currently there is `mongodb` (`mongod` 8.0 by default, or
+`mongodb 7.0` for another series), which is what libraries like
+mongobox need. To add a tool, drop an executable script in that
+directory and rebuild the image.
+
+For services that run as separate containers (databases, queues), use
+`--mcp-podman` and let Claude start an official image instead.
+
+### Login
+
+Nothing to do on the first run: when `~/.cache/claude-podman/auth/token`
+is missing, claude-podman runs `claude setup-token` in a throwaway
+container, asks you to paste the token it prints, and saves it. Every
+later run injects it as `CLAUDE_CODE_OAUTH_TOKEN`. Use
+`claude-podman --login` only to replace the saved token. You can paste
+just the token or the whole `export CLAUDE_CODE_OAUTH_TOKEN=...` line.
+
+## What a session gets
+
+- **Mounts:** the project directory at `/project`, and a throwaway
+  `.claude` directory under `~/.cache/claude-podman/`. Nothing else
+  from the host.
+- **Preset config:** the throwaway config is rebuilt every run, so the
+  CLI seeds it to skip first-launch prompts: dark theme, onboarding
+  done, `/project` pre-trusted, no dangerous-mode confirmation, no
+  auto-compaction, `Concise` output style, and the status line footer
+  plugin.
+- **Agents and commands:** the subagents and slash commands in
+  `claude_podman/agents` and `claude_podman/commands` are copied in
+  (`/feature`, `/test`, `/lint`, ...).
+- **`doc/`:** created in the project if missing, as a shared
+  workspace for agents and you.
+- **Sandbox rules:** `claude_podman/sandbox-rules.md` becomes the
+  session's global memory. It covers the host/container file split,
+  the `venv-claude/` virtualenv and the installer scripts.
+- **Git identity:** `user.name` and `user.email` from the host's git
+  config (per-project overrides apply) are passed as
+  `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. The host's `~/.gitconfig` is never
+  mounted.
+- **Model:** none is chosen. The session starts on your account's
+  default, and a model picked with `/model` is forgotten on exit.
 
 ## How it works
 
-Two packages:
-
-- `claude_podman` — the host-side CLI that manages the container
-  lifecycle.
-- `mcp_podman` — an MCP server that runs on the host and gives the
-  sandboxed Claude a narrow set of Podman operations (`container_run`,
-  `container_build`, `container_stop`, `container_remove`,
-  `container_logs`, `container_list`, `container_exec`), scoped to
-  containers/images its own session created.
-
-Each run starts the Podman machine if needed, starts the MCP server
-(only with `--mcp-podman`) with a per-session bearer token, and launches a container — mounting
-only the project directory and a throwaway, per-session `.claude`
-config directory under `~/.cache/claude-podman/` (never a host
-`~/.claude`, since there isn't one). Exiting Claude tears the
-container, the MCP server, and that session directory back down.
-
-Because that `.claude` config is thrown away and rebuilt every run,
-the CLI also pre-seeds it each time so you don't hit first-launch
-prompts on every session: `settings.json` sets dark mode
-(`"theme": "dark"`) and silences the extra confirmation dialog for
-`--dangerously-skip-permissions` (`"skipDangerousModePermissionPrompt": true`);
-`.claude.json` marks onboarding complete
-(`"hasCompletedOnboarding": true`) and pre-trusts `/project`
-(`"projects": {"/project": {"hasTrustDialogAccepted": true}}`) — safe
-since that's always the container's fixed mount point, never the host
-path.
-
-So that `git commit` works inside the container, the CLI reads
-`user.name` and `user.email` from the host's git config (as seen from
-the project directory, so per-project overrides apply) and passes them
-as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` environment variables. The host's
-`~/.gitconfig` itself is never mounted, so credential helpers and
-other host git settings stay out of the sandbox.
-
-claude-podman doesn't choose a model: the session starts on whatever
-default Claude Code resolves for your account. Since the `.claude`
-config is fresh every run, a model picked with `/model` is forgotten on
-exit. The startup announcement (e.g. "Opus 5.5 is now your default
-model…") is a generic notice and may not match the model the session
-actually started on — run `/model` to see what's selected.
-
-The one thing that *does* persist across sessions, if you've run
-`claude-podman --login`, is `~/.cache/claude-podman/auth/token` — a
-long-lived OAuth token injected into each container as
-`CLAUDE_CODE_OAUTH_TOKEN`. When logging in, paste just the token
-`claude setup-token` prints (pasting the whole
-`export CLAUDE_CODE_OAUTH_TOKEN=...` convenience line it also prints
-works too — the CLI strips that prefix for you).
+`claude_podman` is the host CLI that manages the container lifecycle.
+`mcp_podman` is an opt-in MCP server on the host that gives the
+sandboxed Claude a narrow, session-scoped set of Podman tools. See
+[doc/architecture.md](doc/architecture.md) for details.
 
 ## License
 
