@@ -391,12 +391,12 @@ def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
         cmd = [
             "podman", "run", "--rm", "-it",
             "-v", f"{project_dir}:/project",
-            "-v", f"{session_claude}:/home/node/.claude",
-            "-v", f"{config_file}:/home/node/.claude.json",
+            "-v", f"{session_claude}:/home/claude/.claude",
+            "-v", f"{config_file}:/home/claude/.claude.json",
             "--workdir", "/project",
         ]
         if sys.platform == "linux":
-            # Rootless Podman maps the container's node user to a
+            # Rootless Podman maps the container's claude user to a
             # subuid, so bind mounts owned by the host user would be
             # unreadable; SELinux would deny them as well.
             cmd += [

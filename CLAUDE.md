@@ -55,10 +55,10 @@ token there; every session injects it as `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Container
 
-Base image: `python:3-slim-trixie`, with Node 22 (via NodeSource),
+Base image: `python:3-slim-trixie`, with
 git, make, ripgrep, jq, and neovim (`$EDITOR`/`$VISUAL`) installed on top,
 and `claude` itself installed via the official install script. Runs
-as the `node` user.
+as the `claude` user.
 Other image types (`--type rust`, `--type python`) are
 `claude_podman/images/<type>.Containerfile`, layered on the base image;
 adding a file adds a type.
