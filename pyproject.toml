@@ -31,6 +31,10 @@ include = ["claude_podman*", "mcp_podman*"]
 claude_podman = [
     "images/*.Containerfile",
     "sandbox-rules.md",
+    "statusline.sh",
     "agents/*.md",
     "commands/*.md",
+    "plugins/statusline-footer/LICENSE",
+    "plugins/statusline-footer/.claude-plugin/*.json",
+    "plugins/statusline-footer/hooks/*",
 ]

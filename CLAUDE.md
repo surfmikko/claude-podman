@@ -56,7 +56,7 @@ token there; every session injects it as `CLAUDE_CODE_OAUTH_TOKEN`.
 ## Container
 
 Base image: `python:3-slim-trixie`, with Node 22 (via NodeSource),
-git, make, ripgrep, and neovim (`$EDITOR`/`$VISUAL`) installed on top,
+git, make, ripgrep, jq, and neovim (`$EDITOR`/`$VISUAL`) installed on top,
 and `claude` itself installed via the official install script. Runs
 as the `node` user.
 Other image types (`--type rust`, `--type python`) are

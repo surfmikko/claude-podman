@@ -26,6 +26,7 @@ _AGENTS_DIR = _PKG_DIR / "agents"
 _COMMANDS_DIR = _PKG_DIR / "commands"
 _IMAGES_DIR = _PKG_DIR / "images"
 _SANDBOX_RULES = _PKG_DIR / "sandbox-rules.md"
+_STATUSLINE = _PKG_DIR / "statusline.sh"
 _AUTH_DIR = _CACHE_ROOT / "auth"
 _TOKEN_FILE = _AUTH_DIR / "token"
 
@@ -238,6 +239,23 @@ def _write_settings(session_claude: Path) -> None:
     settings = {
         "theme": "dark",
         "skipDangerousModePermissionPrompt": True,
+        "autoCompactEnabled": False,
+        "idleCompaction": False,
+        "awaySummaryEnabled": False,
+        "outputStyle": "Concise",
+        "permissions": {"defaultMode": "dontAsk"},
+        "worktree": {"baseRef": "fresh"},
+        "dialogExpiry": "never",
+        "pluginConfigs": {
+            "cc-plugin-agents-md@builtin": {
+                "options": {"instructionFiles": "claude-md-or-agents-md"},
+            },
+        },
+        "editorMode": "normal",
+        "preferredNotifChannel": "auto",
+        "terminalProgressBarEnabled": False,
+        "remoteControlAtStartup": False,
+        "crossSessionInbound": "accept",
     }
     (session_claude / "settings.json").write_text(
         json.dumps(settings, indent=2)
@@ -367,6 +385,8 @@ def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
         _inject_dir(_COMMANDS_DIR, session_claude)
         _inject_global_memory(session_claude)
         _write_settings(session_claude)
+        shutil.copy2(_STATUSLINE, session_claude / "statusline.sh")
+        (session_claude / "project-name").write_text(project_dir.name)
 
         cmd = [
             "podman", "run", "--rm", "-it",
@@ -390,7 +410,10 @@ def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
         oauth_token = _TOKEN_FILE.read_text().strip()
         cmd += ["-e", f"CLAUDE_CODE_OAUTH_TOKEN={oauth_token}"]
 
-        cmd += [image, "claude", "--dangerously-skip-permissions"]
+        cmd += [
+            image, "claude", "--dangerously-skip-permissions",
+            "--plugin-dir", "/opt/statusline-footer",
+        ]
 
         subprocess.run(cmd)
     finally:

@@ -5,7 +5,7 @@ RUN apt-get update \
         curl gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends \
-        nodejs git make ripgrep neovim \
+        nodejs git make ripgrep neovim jq \
     && rm -rf /var/lib/apt/lists/*
 
 ENV EDITOR=nvim
@@ -15,9 +15,13 @@ ENV TERM=xterm-256color
 RUN useradd -m -s /bin/bash node \
     && mkdir -p /home/node/.claude && chown -R node:node /home/node/.claude
 
+COPY plugins/statusline-footer /opt/statusline-footer
+RUN chmod -R a+rX /opt/statusline-footer
+
 USER node
 ENV PATH=/home/node/.local/bin:$PATH
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 WORKDIR /project
-CMD ["claude", "--dangerously-skip-permissions"]
+CMD ["claude", "--dangerously-skip-permissions", \
+     "--plugin-dir", "/opt/statusline-footer"]
