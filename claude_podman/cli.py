@@ -222,15 +222,16 @@ def _write_claude_config(
         "projects": {
             "/project": {"hasTrustDialogAccepted": True},
         },
+        "mcpServers": {
+            "semble": {"type": "stdio", "command": "semble", "args": []},
+        },
     }
     if mcp:
         port, token = mcp
-        config["mcpServers"] = {
-            "podman": {
-                "type": "http",
-                "url": f"http://host.containers.internal:{port}/mcp",
-                "headers": {"Authorization": f"Bearer {token}"},
-            },
+        config["mcpServers"]["podman"] = {
+            "type": "http",
+            "url": f"http://host.containers.internal:{port}/mcp",
+            "headers": {"Authorization": f"Bearer {token}"},
         }
     path.write_text(json.dumps(config, indent=2))
 

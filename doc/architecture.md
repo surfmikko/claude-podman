@@ -55,3 +55,14 @@ Base image: `python:3-slim-trixie` plus tools, with `claude` installed
 by the official script, running as the `claude` user. Other types
 (`--type rust`, `--type python`) are
 `claude_podman/images/<type>.Containerfile` layered on the base.
+
+## Code search (`semble`)
+
+Semble (local MCP server, tree-sitter chunks, static embeddings, BM25 +
+vector) is installed in the base image with its model, using uv-managed
+Python 3.13 (tree-sitter has no wheels for the newest Python). It is
+registered as a stdio server in the session's Claude config. The index
+is written to `/project/.claude-index/linux-<arch>/`, which is
+gitignored and keyed by architecture so a project shared between
+differently-built containers never mixes indexes. The host never runs
+it. Research: `issue/local-code-search.md`.

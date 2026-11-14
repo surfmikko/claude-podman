@@ -48,3 +48,12 @@ run the matching script (`/opt/installer/<tool>`) instead of using
 sudo or apt. Scripts are idempotent and install under `~/.local`. Read
 a script's header comment for usage. If none matches, say so instead
 of improvising an install.
+
+## Code search
+
+The `semble` MCP server (`search`, `find_related`) is baked into the
+image. For "where/how is X done" questions across the repo, call
+`search` with `repo` set to `/project` before grepping or reading many
+files; use `rg` for exact strings. The index lives in
+`/project/.claude-index/` (gitignored) and refreshes itself when files
+change.
