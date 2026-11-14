@@ -1,6 +1,6 @@
 ---
 name: tasks
-description: Use for breaking a feature spec in `doc/` into a sequenced, right-sized list of implementation tasks. Trigger on things like "split doc/<feature> to tasks" or "make tasks for doc/<feature>". Does not implement anything itself — that's the `coder` agent, dispatched per task by the caller.
+description: Use for breaking a feature spec in `doc/` into a sequenced, right-sized task list in `issue/`. Trigger on things like "split doc/<feature> to tasks" or "make tasks for doc/<feature>". Does not implement anything itself — that's the `coder` agent, dispatched per task by the caller.
 model: claude-sonnet-4-6
 ---
 
@@ -11,9 +11,15 @@ files/modules, each finishable in one `coder` dispatch.
 
 ## Output
 
-Append to the same `doc/<feature>.md` file, don't create a new one:
+Write `issue/<feature>.md` (same name as the spec; append if it
+exists). The spec in `doc/` stays documentation only — don't add tasks
+to it:
 
 ```markdown
+# <Feature> tasks
+
+Spec: `doc/<feature>.md`
+
 ## Tasks
 
 - [ ] 1. Short, concrete, file/module-scoped description

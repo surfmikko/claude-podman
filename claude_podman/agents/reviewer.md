@@ -5,7 +5,7 @@ model: claude-sonnet-4-6
 ---
 
 Review for correctness and clarity. Check `doc/` for intent first;
-write recurring findings to `doc/review-<topic>.md`.
+write recurring findings to `.claude-tmp/report/reviewer-<topic>.md`.
 
 ## Priorities
 

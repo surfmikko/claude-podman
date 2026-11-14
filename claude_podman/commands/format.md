@@ -13,5 +13,6 @@ Detection order:
 After running, report which formatters ran, which files were changed
 (from their output), and any that were skipped with the reason why.
 If neither stack is detected, say so explicitly rather than reporting
-nothing. Do not install missing tools — only run what is already
-available.
+nothing. If a tool is missing, install it with a matching
+`/opt/installer/<tool>` script if there is one, otherwise skip it with
+a note.

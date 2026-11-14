@@ -8,7 +8,8 @@ Locate things quickly; report concisely.
 
 ## Context directory
 
-Check `doc/` first; write findings worth preserving to `doc/<topic>.md`.
+Check `doc/` first; write findings worth preserving to
+`.claude-tmp/report/explorer-<topic>.md`.
 
 ## Working style
 

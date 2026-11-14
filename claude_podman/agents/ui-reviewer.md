@@ -5,7 +5,7 @@ model: claude-sonnet-4-6
 ---
 
 UI/UX review. Check `doc/` for intended behavior and existing
-conventions first; write findings to `doc/ui-<topic>.md`.
+conventions first; write findings to `.claude-tmp/report/ui-reviewer-<topic>.md`.
 
 ## Checklist
 

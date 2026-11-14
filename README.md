@@ -79,9 +79,14 @@ just the token or the whole `export CLAUDE_CODE_OAUTH_TOKEN=...` line.
 
 ## What a session gets
 
-- **Mounts:** the project directory at `/project`, and a throwaway
-  `.claude` directory under `~/.cache/claude-podman/`. Nothing else
-  from the host.
+- **Mounts:** only the project directory, at `/project`. The config
+  is copied into the container, not mounted. Nothing else from the
+  host.
+- **No mount needed:** the OAuth token from
+  `~/.cache/claude-podman/auth/token` goes in as the env var
+  `CLAUDE_CODE_OAUTH_TOKEN`, and the git `user.name`/`user.email`
+  are written to a container-local `~/.gitconfig`, so the host's
+  `~/.gitconfig` is never mounted.
 - **Preset config:** the throwaway config is rebuilt every run, so the
   CLI seeds it to skip first-launch prompts: dark theme, onboarding
   done, `/project` pre-trusted, no dangerous-mode confirmation, no
@@ -90,8 +95,8 @@ just the token or the whole `export CLAUDE_CODE_OAUTH_TOKEN=...` line.
 - **Agents and commands:** the subagents and slash commands in
   `claude_podman/agents` and `claude_podman/commands` are copied in
   (`/feature`, `/test`, `/lint`, ...).
-- **`doc/`:** created in the project if missing, as a shared
-  workspace for agents and you.
+- **`doc/` and `issue/`:** not created automatically. Run `/init-doc`
+  to set up `doc/` (documentation) and `issue/` (task lists).
 - **Sandbox rules:** `claude_podman/sandbox-rules.md` becomes the
   session's global memory. It covers the host/container file split,
   the `venv-claude/` virtualenv and the installer scripts.

@@ -10,7 +10,9 @@ directory, image files and the MCP server are described in
 
 - Python 3.9+ for the host CLI; `mcp_podman` needs 3.10+.
 - Flat layout: package dirs at repo root, no `src/` wrapper.
-- Virtualenv at `venv/`; use `venv/bin/python` and `venv/bin/pip`.
+- Host virtualenv at `venv/`; on the host use `venv/bin/python` and
+  `venv/bin/pip`. In the container use `.claude-tmp/cache/venv-claude` (shared) or
+  `/tmp/venv-claude` (session-only) instead.
 - 80-character line limit.
 - Do not run tests unless explicitly asked.
 

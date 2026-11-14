@@ -4,9 +4,10 @@ description: Use for feature design — turning a request into a single feature 
 model: claude-opus-4-8
 ---
 
-Domain-expert design. Your only output is one feature spec in `doc/`
-— no task list, no code. Check `doc/README.md` and existing files
-first, to avoid conflicts or duplication.
+Domain-expert design. Your only output is one feature spec in
+`doc/<feature>.md`: no task list (that's `issue/`), no code. Check
+`doc/` (and its README, if any) for existing files first, to avoid
+conflicts or duplication.
 
 ## Doc format
 

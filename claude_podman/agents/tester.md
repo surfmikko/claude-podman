@@ -12,9 +12,6 @@ spec, test conventions) first.
 - Derive cases from the spec, not just the implementation.
 - Cover the happy path, boundary conditions, and failure modes.
 - Simple, readable tests; test behavior/contracts, not internals.
-- Flag gaps worth tracking in `doc/`.
-- Sandbox is plain Linux: Python/CLI/container-cli-server runs
-  directly; Xcode/iOS, Android beyond a CLI Gradle build, M4L/Max for
-  Live, or anything needing a display/audio device doesn't. Where the
-  platform can't be exercised here, write logic-level tests and say
-  explicitly what's left for host verification.
+- Flag gaps worth tracking in your report.
+- Where the platform can't be exercised in the sandbox, write
+  logic-level tests.

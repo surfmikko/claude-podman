@@ -16,7 +16,8 @@ Stage 3 — Tests:
 - Python: `pytest`
 - Node: `npm test`
 
-Skip any tool that is not available — do not install anything. If
+If a tool is missing, install it with a matching `/opt/installer/<tool>`
+script if there is one, otherwise skip it with a note. If
 neither `pyproject.toml`/`setup.py` nor `package.json` is present,
 report that no recognized toolchain was found instead of an empty
 PASS — don't let "nothing to check" read as "nothing wrong."
@@ -35,5 +36,5 @@ Overall  PASS / FAIL
 
 If any stage failed, list the individual failures below the summary table,
 grouped by stage, compact (one line per issue where possible).
-Write the full summary to `doc/ci-latest.md` so agents can reference
+Write the full summary to `.claude-tmp/report/ci-<timestamp>.md` so agents can reference
 the current project health.

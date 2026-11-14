@@ -3,9 +3,10 @@
 ## Lifecycle
 
 `claude_podman` (host CLI) starts the Podman machine, builds the image
-on first run, generates a per-session bearer token, runs the container
-and cleans up on exit. The project directory is bind-mounted as
-`/project`.
+on first run, generates a per-session bearer token, creates the container,
+copies the generated config in and starts it, then cleans up on exit.
+The project directory is bind-mounted as `/project`; it is the only
+mount.
 
 ## Auth
 
@@ -14,11 +15,16 @@ If `~/.cache/claude-podman/auth/token` is missing, the CLI runs
 token there. Every session injects it as `CLAUDE_CODE_OAUTH_TOKEN`.
 `claude-podman --login` redoes the login to replace the token.
 
-## Session directory
+## Session config
 
-Each run gets a throwaway `~/.cache/claude-podman/<project>-<session>/`
-holding the MCP config and the container's `.claude` dir. It is never
-inside the project directory, so it can't leak into the repo.
+Nothing is staged on the host. The CLI builds the MCP config
+(`~/.claude.json`) and the container's `~/.claude` dir (settings,
+memory, agents, commands, status line) in memory and streams them as
+a tar into the created container with `podman cp -` before
+`podman start`. Files are owned by the container's `claude` user
+(uid 1000). Copying instead of bind-mounting avoids single-file mount
+breakage when Claude replaces `.claude.json` by rename, and keeps the
+MCP bearer token off the host disk.
 
 ## Host `venv/`
 

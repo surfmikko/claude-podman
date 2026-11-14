@@ -1,11 +1,12 @@
 import argparse
+import io
 import json
 import os
 import secrets
-import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import types
@@ -29,19 +30,9 @@ _SANDBOX_RULES = _PKG_DIR / "sandbox-rules.md"
 _STATUSLINE = _PKG_DIR / "statusline.sh"
 _AUTH_DIR = _CACHE_ROOT / "auth"
 _TOKEN_FILE = _AUTH_DIR / "token"
-
-_DOC_README = """\
-# doc/
-
-Shared workspace between agents and the developer: one markdown file
-per feature, decision, or finding worth keeping (e.g. `doc/login.md`,
-`doc/rate-limiting.md`).
-
-Agents read this directory for context before starting work and write
-their findings and decisions here. You can add files directly — agents
-will pick them up on their next run.
-"""
-
+# The container's `claude` user; owner of the files copied in.
+_CONTAINER_UID = 1000
+_CONTAINER_HOME = "/home/claude"
 
 def _wait_for_podman_ready(timeout: float = 30.0) -> bool:
     deadline = time.monotonic() + timeout
@@ -208,9 +199,7 @@ def _start_mcp_server(
     return proc, Path(log_path)
 
 
-def _write_claude_config(
-    mcp: Optional[tuple[int, str]], path: Path
-) -> None:
+def _claude_config(mcp: Optional[tuple[int, str]]) -> str:
     config = {
         # Skips the first-launch wizard (theme picker, trust dialog,
         # login screen), which otherwise runs unconditionally whenever
@@ -233,10 +222,10 @@ def _write_claude_config(
             "url": f"http://host.containers.internal:{port}/mcp",
             "headers": {"Authorization": f"Bearer {token}"},
         }
-    path.write_text(json.dumps(config, indent=2))
+    return json.dumps(config, indent=2)
 
 
-def _write_settings(session_claude: Path) -> None:
+def _settings() -> str:
     settings = {
         "theme": "dark",
         "skipDangerousModePermissionPrompt": True,
@@ -257,36 +246,61 @@ def _write_settings(session_claude: Path) -> None:
         "terminalProgressBarEnabled": False,
         "remoteControlAtStartup": False,
         "crossSessionInbound": "accept",
+        "attribution": {"commit": "", "pr": ""},
     }
-    (session_claude / "settings.json").write_text(
-        json.dumps(settings, indent=2)
-    )
+    return json.dumps(settings, indent=2)
 
 
-def _init_doc_dir(project_dir: Path) -> None:
-    doc = project_dir / "doc"
-    if doc.exists():
-        return
-    doc.mkdir()
-    (doc / "README.md").write_text(_DOC_README)
+# Relative path -> (content, mode) for files copied into the container.
+_Files = dict[str, tuple[bytes, int]]
 
 
-def _inject_dir(src_dir: Path, dst_parent: Path) -> None:
+def _text(content: str, mode: int = 0o644) -> tuple[bytes, int]:
+    return content.encode(), mode
+
+
+def _file(path: Path) -> tuple[bytes, int]:
+    return path.read_bytes(), path.stat().st_mode & 0o777
+
+
+def _dir_files(src_dir: Path, dst_name: str) -> _Files:
     if not src_dir.is_dir():
-        return
-    dst = dst_parent / src_dir.name
-    dst.mkdir(exist_ok=True)
-    for src in src_dir.glob("*.md"):
-        target = dst / src.name
-        if not target.exists():
-            shutil.copy2(src, target)
+        return {}
+    return {
+        f"{dst_name}/{src.name}": _file(src)
+        for src in sorted(src_dir.glob("*.md"))
+    }
 
 
-def _inject_global_memory(session_claude: Path) -> None:
-    # session_claude is a freshly created directory (see _run), so
-    # CLAUDE.md can never already exist here — no merge needed.
-    rules = _SANDBOX_RULES.read_text()
-    (session_claude / "CLAUDE.md").write_text(rules)
+def _home_tar(files: _Files) -> bytes:
+    """Tar stream for `podman cp - <name>:/home/claude`."""
+    buf = io.BytesIO()
+    dirs: set[str] = set()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for name, (data, mode) in files.items():
+            # Explicit entries, or implicit parents would be root-owned.
+            for parent in reversed(list(Path(name).parents)[:-1]):
+                if str(parent) not in dirs:
+                    dirs.add(str(parent))
+                    d = tarfile.TarInfo(str(parent))
+                    d.type = tarfile.DIRTYPE
+                    d.mode = 0o755
+                    d.uid = d.gid = _CONTAINER_UID
+                    tar.addfile(d)
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mode = mode
+            info.uid = info.gid = _CONTAINER_UID
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def _podman_checked(
+    args: list[str], what: str, input: Optional[bytes] = None
+) -> None:
+    r = subprocess.run(["podman", *args], input=input)
+    if r.returncode:
+        sys.exit(f"error: {what} failed (exit {r.returncode})")
 
 
 def _login(image: str) -> None:
@@ -317,11 +331,12 @@ def _login(image: str) -> None:
     )
 
 
-def _git_identity_env(project_dir: Path) -> list[str]:
-    # Env vars rather than mounting ~/.gitconfig, which would expose
-    # credential helpers and other host config to the sandbox.
-    args: list[str] = []
-    for key, var in (("user.name", "NAME"), ("user.email", "EMAIL")):
+def _gitconfig(project_dir: Path) -> str:
+    # Only the identity, written to a container-local file, rather than
+    # mounting ~/.gitconfig, which would expose credential helpers and
+    # other host config to the sandbox.
+    lines: list[str] = []
+    for key, field in (("user.name", "name"), ("user.email", "email")):
         try:
             r = subprocess.run(
                 ["git", "config", "--get", key],
@@ -330,14 +345,11 @@ def _git_identity_env(project_dir: Path) -> list[str]:
                 text=True,
             )
         except FileNotFoundError:
-            return []
+            return ""
         value = r.stdout.strip()
         if value:
-            args += [
-                "-e", f"GIT_AUTHOR_{var}={value}",
-                "-e", f"GIT_COMMITTER_{var}={value}",
-            ]
-    return args
+            lines.append(f"\t{field} = {json.dumps(value)}")
+    return "[user]\n" + "\n".join(lines) + "\n" if lines else ""
 
 
 def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
@@ -370,30 +382,24 @@ def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
             sys.exit("error: MCP server did not start in time")
         mcp = (port, token)
 
-    _CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    session_dir = _CACHE_ROOT / f"{project_dir.name}-{session_id}"
+    name = f"claude-{session_id}"
 
     try:
-        session_dir.mkdir()
-        config_file = session_dir / "claude.json"
-        _write_claude_config(mcp, config_file)
-
-        session_claude = session_dir / "claude"
-        session_claude.mkdir()
-
-        _init_doc_dir(project_dir)
-        _inject_dir(_AGENTS_DIR, session_claude)
-        _inject_dir(_COMMANDS_DIR, session_claude)
-        _inject_global_memory(session_claude)
-        _write_settings(session_claude)
-        shutil.copy2(_STATUSLINE, session_claude / "statusline.sh")
-        (session_claude / "project-name").write_text(project_dir.name)
+        files: _Files = {
+            ".claude.json": _text(_claude_config(mcp)),
+            ".claude/settings.json": _text(_settings()),
+            ".claude/CLAUDE.md": _text(_SANDBOX_RULES.read_text()),
+            ".claude/statusline.sh": _file(_STATUSLINE),
+            ".claude/project-name": _text(project_dir.name),
+            **_dir_files(_AGENTS_DIR, ".claude/agents"),
+            **_dir_files(_COMMANDS_DIR, ".claude/commands"),
+        }
+        if gitconfig := _gitconfig(project_dir):
+            files[".gitconfig"] = _text(gitconfig)
 
         cmd = [
-            "podman", "run", "--rm", "-it",
+            "podman", "create", "--rm", "-it", "--name", name,
             "-v", f"{project_dir}:/project",
-            "-v", f"{session_claude}:/home/claude/.claude",
-            "-v", f"{config_file}:/home/claude/.claude.json",
             "--workdir", "/project",
         ]
         if sys.platform == "linux":
@@ -406,23 +412,33 @@ def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
             ]
         if mcp:
             cmd += ["--add-host=host.containers.internal:host-gateway"]
-        cmd += _git_identity_env(project_dir)
 
         oauth_token = _TOKEN_FILE.read_text().strip()
-        cmd += ["-e", f"CLAUDE_CODE_OAUTH_TOKEN={oauth_token}"]
+        # Via stdin, so the token isn't in the host process arguments.
+        cmd += ["--env-file", "/dev/stdin"]
 
         cmd += [
             image, "claude", "--dangerously-skip-permissions",
             "--plugin-dir", "/opt/statusline-footer",
         ]
 
-        subprocess.run(cmd)
+        _podman_checked(
+            cmd[1:],
+            "podman create",
+            input=f"CLAUDE_CODE_OAUTH_TOKEN={oauth_token}\n".encode(),
+        )
+        _podman_checked(
+            ["cp", "-", f"{name}:{_CONTAINER_HOME}"],
+            "podman cp",
+            input=_home_tar(files),
+        )
+        subprocess.run(["podman", "start", "-ai", name])
     finally:
         if mcp_proc:
             mcp_proc.terminate()
             mcp_log.unlink(missing_ok=True)
+        subprocess.run(["podman", "rm", "-f", name], capture_output=True)
         _cleanup_session(session_id)
-        shutil.rmtree(session_dir, ignore_errors=True)
 
 
 def main():

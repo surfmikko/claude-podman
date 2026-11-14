@@ -5,7 +5,7 @@ model: claude-sonnet-4-6
 ---
 
 Security review. Check `doc/` for trust boundaries and auth design
-first; write findings to `doc/security-<topic>.md` with severity
+first; write findings to `.claude-tmp/report/security-<topic>.md` with severity
 (critical/high/medium/low) and a concrete remediation.
 
 ## Checklist — OWASP Top 10
