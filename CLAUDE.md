@@ -11,10 +11,11 @@ directory, image files and the MCP server are described in
 - Python 3.9+ for the host CLI; `mcp_podman` needs 3.10+.
 - Flat layout: package dirs at repo root, no `src/` wrapper.
 - Host virtualenv at `venv/`; on the host use `venv/bin/python` and
-  `venv/bin/pip`. In the container use `.claude-tmp/cache/venv-claude` (shared) or
-  `/tmp/venv-claude` (session-only) instead.
+  `venv/bin/pip`. In the container use `.claude-data/opt/venv` (created by
+  `agent-test`) instead.
 - 80-character line limit.
-- Do not run tests unless explicitly asked.
+- Do not run tests unless explicitly asked. When asked, run them only
+  through `agent-test` (see `doc/test-harness.md`).
 
 ## Images
 

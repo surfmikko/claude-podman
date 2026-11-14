@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Claude Code hook: don't let the agent finish with failing tests.
+
+SessionStart / SubagentStart: remember what the working tree looks like.
+Stop / SubagentStop: if the tree changed since the last look, run
+`agent-test --full`. Failed tests block the stop and the output goes back
+to the agent. The tree is remembered after every run, so the agent gets
+one block per change: if it stops again without changing anything (for
+example to ask the user), it may. Provisioning problems and projects
+with no tests never block. Each agent (main, or one subagent) has its own
+memory. Every subagent is checked.
+Registered in the sandbox's settings.json (claude_podman/cli.py).
+"""
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+AGENT_TEST = Path(__file__).resolve().parent / "agent-test"
+
+# Changes to these files never trigger a test run; everything else does.
+# Add a glob here for a new kind of non-code file.
+IGNORED_GLOBS = [
+    "*.md", "*.rst", "*.adoc",
+    "doc/**", "docs/**", "issue/**", ".claude/**", ".claude-data/**",
+    "LICENSE*", "README*", "CHANGELOG*", ".gitignore",
+    "data/**", "tmp/**", "log/**", "logs/**", "*.log",
+    "*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.ico", "*.webp",
+    "*.pdf", "*.mp3", "*.mp4", "*.wav", "*.zip", "*.tar", "*.gz",
+]
+PATHSPEC = ["--", ".",
+            *(f":(exclude,glob){g}" if "/" in g
+              else f":(exclude,glob)**/{g}" for g in IGNORED_GLOBS)]
+
+
+def git(cwd, *args):
+    return subprocess.run(
+        ["git", "-c", "safe.directory=*", *args], cwd=cwd,
+        capture_output=True)
+
+
+def fingerprint(cwd):
+    """Hash of the tracked changes and untracked files, None if no git.
+
+    Files matching IGNORED_GLOBS are left out."""
+    if git(cwd, "rev-parse", "--git-dir").returncode != 0:
+        return None
+    digest = hashlib.sha256(git(cwd, "diff", "HEAD", *PATHSPEC).stdout)
+    untracked = git(cwd, "ls-files", "-o", "--exclude-standard", "-z",
+                    *PATHSPEC)
+    for name in sorted(untracked.stdout.split(b"\0")):
+        digest.update(name)
+        try:
+            digest.update((cwd / name.decode()).read_bytes())
+        except OSError:
+            pass
+    return digest.hexdigest()
+
+
+def main():
+    event = json.load(sys.stdin)
+    cwd = Path(event.get("cwd") or ".")
+    name = event.get("hook_event_name")
+    agent = event.get("agent_id", "main")
+    state_file = (cwd / ".claude-data" / "var" / "cache"
+                  / f"hook-{event.get('session_id', 'session')}-{agent}.json")
+    seen = fingerprint(cwd)
+    if seen is None:
+        return
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    if name in ("SessionStart", "SubagentStart"):
+        if not state_file.exists():
+            state_file.write_text(json.dumps({"seen": seen}))
+        return
+    if state_file.exists():
+        if json.loads(state_file.read_text())["seen"] == seen:
+            return  # nothing changed since the last look: let it stop
+
+    result = subprocess.run([str(AGENT_TEST), "--full"], cwd=cwd,
+                            capture_output=True, text=True)
+    state_file.write_text(json.dumps({"seen": fingerprint(cwd)}))
+    output = result.stdout.strip()
+    if result.returncode == 1:
+        reason = (f"{output}\n\nagent-test --full failed. Fix what your "
+                  "change broke, then finish again.")
+        print(json.dumps({"decision": "block", "reason": reason}))
+    elif result.returncode == 2 and not output.startswith(
+            "agent-test: NOTHING TO RUN"):
+        print(json.dumps({"systemMessage": output.splitlines()[0]}))
+
+
+main()

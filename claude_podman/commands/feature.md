@@ -1,35 +1,27 @@
-Drive a feature from spec to implemented, reviewed, and tested. Use
-$ARGUMENTS as the feature name, or a `doc/<feature>.md` or
-`issue/<feature>.md` path. The spec lives in `doc/<feature>.md`, the
-task list in `issue/<feature>.md`.
+Drive a feature from spec to implemented. Use $ARGUMENTS as the
+feature name, or a `doc/<feature>.md` or `issue/<feature>.md` path. The
+spec lives in `doc/<feature>.md`, the task list in
+`issue/<feature>.md`.
 
-1. If `doc/<feature>.md` doesn't exist yet, dispatch the `designer`
-   agent to write it. Otherwise read it.
-2. If `issue/<feature>.md` has no `## Tasks` section yet, dispatch the
-   `tasks` agent to split the spec into it.
-3. For each task still marked `[ ]`, in order:
-   - Dispatch `coder` with the issue file path and that task. It may
-     come back `[x]` (done and verified) or `[~]` (implemented, needs
-     host verification — the sandbox can't build/run that platform).
-   - If it came back `[~]`: stop looping on this task. Report what
-     coder needs verified on the host, then move on to the next task
-     that doesn't depend on it — don't retry the same build hoping it
-     works, and don't leave the user waiting on something only they
-     can check.
-   - If it came back `[x]`: dispatch `reviewer` on the resulting diff.
-     If the task touched security-sensitive surface (auth, input
-     handling, secrets, dependencies), also dispatch `security`. If
-     it touched UI, also dispatch `ui-reviewer`. Then dispatch
-     `tester`.
-   - Only move to the next task once the current one is `[x]` with
-     review/test findings resolved or acknowledged, or `[~]` reported.
-4. When every task is `[x]`, fold anything worth keeping from
-   `issue/<feature>.md` into `doc/<feature>.md` or the commit message,
-   then delete the issue file. Skip this if any task is `[~]` or open.
-5. Report a short summary: tasks completed and verified, tasks
-   waiting on host verification (and what to check), any findings
-   left open, and what's still unstarted.
-
-Don't dispatch tasks that depend on an unchecked one out of order,
-even if `tasks` listed them that way — re-check the issue file's own
-dependency notes first.
+1. Interview the user (you, the main agent, not a subagent) about the
+   feature: ask one question at a time until intent, scope, behavior
+   and edge cases are unambiguous. Skip what an existing spec already
+   answers.
+2. Write or update `doc/<feature>.md` (dispatch `designer` if useful),
+   then `issue/<feature>.md` (dispatch `tasks`). Show both to the user
+   and wait for approval before implementing.
+3. For each task still marked `[ ]`, in order, dispatch `coder` with
+   the issue file path and that task, one task per dispatch. It comes
+   back `[x]` (done and verified) or `[~]` (needs host verification).
+   Don't start a task that depends on an unfinished one; re-check the
+   issue file's dependency notes. On `[~]`, note what the user must
+   check and continue with tasks that don't depend on it.
+4. Present the result to the user for approval: what changed per task,
+   what waits on host verification, anything coder reported as blocked.
+   Reviews are not part of this flow; the user can run `reviewer`,
+   `security`, `ui-reviewer` or `tester` afterwards, and those open
+   their own `issue/` files.
+5. After approval, if every task is `[x]`, fold what is worth keeping
+   into `doc/<feature>.md` (architecture/spec level) or the commit
+   message and delete the issue file in the closing commit. Skip this
+   while any task is `[~]` or open.

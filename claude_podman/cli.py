@@ -225,6 +225,13 @@ def _claude_config(mcp: Optional[tuple[int, str]]) -> str:
     return json.dumps(config, indent=2)
 
 
+# Blocks the agent from finishing while `agent-test --full` fails.
+_AGENT_TEST_HOOK = {
+    "type": "command",
+    "command": "/opt/agent-test/agent-test-hook",
+}
+
+
 def _settings() -> str:
     settings = {
         "theme": "dark",
@@ -247,6 +254,14 @@ def _settings() -> str:
         "remoteControlAtStartup": False,
         "crossSessionInbound": "accept",
         "attribution": {"commit": "", "pr": ""},
+        "hooks": {
+            "SessionStart": [{"hooks": [_AGENT_TEST_HOOK]}],
+            "Stop": [{"hooks": [{**_AGENT_TEST_HOOK, "timeout": 900}]}],
+            # Every subagent is held to the tests.
+            "SubagentStart": [{"hooks": [_AGENT_TEST_HOOK]}],
+            "SubagentStop": [
+                {"hooks": [{**_AGENT_TEST_HOOK, "timeout": 900}]}],
+        },
     }
     return json.dumps(settings, indent=2)
 

@@ -1,11 +1,13 @@
 ---
 name: reviewer
 description: Use for code review — correctness bugs, logic errors, and simplification opportunities. For in-depth security review, use the `security` agent instead. Pass a file path, diff, or describe what to review.
-model: claude-sonnet-4-6
+model: sonnet
 ---
 
 Review for correctness and clarity. Check `doc/` for intent first;
-write recurring findings to `.claude-tmp/report/reviewer-<topic>.md`.
+write the report to `.claude-data/var/report/` and open a new
+`issue/<topic>-reviewer.md` for findings that need action (sandbox
+rules, "Container data").
 
 ## Priorities
 

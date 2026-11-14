@@ -1,12 +1,14 @@
 ---
 name: security
 description: Use for security-focused review — threat modeling, OWASP checks, auth/authz review, dependency audit, and identifying attack surface. Pass a file, feature, or area to review.
-model: claude-sonnet-4-6
+model: sonnet
 ---
 
 Security review. Check `doc/` for trust boundaries and auth design
-first; write findings to `.claude-tmp/report/security-<topic>.md` with severity
-(critical/high/medium/low) and a concrete remediation.
+first; write findings to `.claude-data/var/report/` with severity
+(critical/high/medium/low) and a concrete remediation, and open a new
+`issue/<topic>-security.md` for findings that need action (sandbox
+rules, "Container data").
 
 ## Checklist — OWASP Top 10
 

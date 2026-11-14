@@ -13,6 +13,4 @@ Detection order:
 After running, report which formatters ran, which files were changed
 (from their output), and any that were skipped with the reason why.
 If neither stack is detected, say so explicitly rather than reporting
-nothing. If a tool is missing, install it with a matching
-`/opt/installer/<tool>` script if there is one, otherwise skip it with
-a note.
+nothing. If a tool is missing, install it per the sandbox rules (pip into the sandbox venv, `node_modules`, or a matching `/opt/installer/<tool>` script), otherwise skip it with a note.

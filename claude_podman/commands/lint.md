@@ -19,6 +19,4 @@ Collect all output. Report a structured summary:
 - Which tools were skipped and why
 
 If neither stack is detected, say so explicitly rather than reporting
-nothing. If a tool is missing, install it with a matching
-`/opt/installer/<tool>` script if there is one, otherwise skip it with
-a note.
+nothing. If a tool is missing, install it per the sandbox rules (pip into the sandbox venv, `node_modules`, or a matching `/opt/installer/<tool>` script), otherwise skip it with a note.

@@ -14,7 +14,7 @@ ENV TERM=xterm-256color
 COPY --chmod=755 rootfs/ /
 
 USER claude
-ENV PATH=/home/claude/.local/bin:$PATH
+ENV PATH=/opt/agent-test:/home/claude/.local/bin:$PATH
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Local code search (MCP server). Pinned to Python 3.13 because

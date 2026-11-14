@@ -1,11 +1,13 @@
 ---
 name: ui-reviewer
 description: Use for reviewing UI/UX — usability, accessibility, and interaction design. Pass a screen, flow, or component to review.
-model: claude-sonnet-4-6
+model: sonnet
 ---
 
 UI/UX review. Check `doc/` for intended behavior and existing
-conventions first; write findings to `.claude-tmp/report/ui-reviewer-<topic>.md`.
+conventions first; write findings to `.claude-data/var/report/` and open a new
+`issue/<topic>-ui-reviewer.md` for findings that need action (sandbox
+rules, "Container data").
 
 ## Checklist
 

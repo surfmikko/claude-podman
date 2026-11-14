@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Run the project's tests in the sandbox: agent-test [--full] [pytest args...]
+
+Run from the repo root. Uses the first harness that applies (make,
+python, rust): provisions its dependencies, then runs its tests.
+Python runs stepwise (stops at the first failure, resumes there next
+time); --full runs every test instead, for the check before "done".
+Every command has a time limit (AGENT_TEST_TIMEOUT, default 300 s) and
+logs to .claude-data/var/log/. Any failing command ends the run.
+
+Exit: 0 passed, 1 tests failed (a test that times out has failed) or
+the script crashed, 2 nothing to run or provisioning failed.
+"""
+import fcntl
+import os
+import re
+import shlex
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+TIMEOUT = int(os.environ.get("AGENT_TEST_TIMEOUT", 300))
+ROOT = Path.cwd()
+DATA = ROOT / ".claude-data"
+VENV = DATA / "opt" / "venv"
+STAMP = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+LOG = DATA / "var" / "log" / f"agent-test-{STAMP}.log"
+ENV = dict(os.environ)  # what every command runs with
+MAX_WIDTH = 200  # longest line shown to the agent; the log keeps all
+FULL = "--full" in sys.argv
+ARGS = [a for a in sys.argv[1:] if a != "--full"]
+LAST = 0  # where the last command's output starts in the log
+
+STOP = ("Stop. Do not retry, widen the scope or raise the limit.\n"
+        "Report this to the caller (user or manager agent) and mark the "
+        "task `[~]`.")
+
+
+def say(text):
+    """Print to the agent, cutting every line to MAX_WIDTH characters."""
+    for line in text.split("\n"):
+        print(line if len(line) <= MAX_WIDTH else line[:MAX_WIDTH - 1] + "…")
+
+
+def last_output(count):
+    """The last `count` non-blank lines of the last command's output."""
+    text = LOG.read_bytes()[LAST:].decode(errors="replace")
+    return [line for line in text.splitlines() if line.strip()][-count:]
+
+
+VERDICT = {1: "FAILED", 2: "PROVISIONING FAILED"}
+
+
+TIMEOUT_HINT = ("A test that timed out has failed. Fix it only if your own "
+                "change made it slow or hang.\nOtherwise, or if the fix "
+                "needs a bigger change to the tests, stop and ask the user "
+                "first.\nDo not raise the limit.")
+
+
+def die(code, message, verdict=None, hint=None):
+    say(f"agent-test: {verdict or VERDICT[code]}: {message}")
+    if code in (1, 2) and LOG.exists():  # show what the failing command said
+        say("\n".join(last_output(50)))
+    if LOG.exists():
+        say(f"log: {LOG.relative_to(ROOT)}")
+    if code == 2:
+        say(STOP)
+    if hint:
+        say(hint)
+    sys.exit(code)
+
+
+def run(cmd, fail=1):
+    """Run cmd with the time limit. Exit with `fail` if it fails."""
+    global LAST
+    text = shlex.join(cmd)
+    with LOG.open("a") as log:
+        log.write(f"\n$ {text}\n")
+        log.flush()
+        LAST = log.tell()
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=ROOT, env=ENV, stdout=log,
+                stderr=subprocess.STDOUT, start_new_session=True)
+        except OSError as error:
+            die(fail, f"{text} (cannot run: {error})")
+        try:
+            code = proc.wait(TIMEOUT)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            die(fail, f"{text} (timed out after {TIMEOUT}s)",
+                hint=TIMEOUT_HINT if fail == 1 else None)
+    if code != 0:
+        die(fail, f"{text} (command exited {code})")
+
+
+def provision_once(inputs, build):
+    """Call build() unless the venv is newer than all the input files.
+
+    The lock makes parallel agents wait instead of building twice.
+    """
+    stamp = VENV / ".provisioned"
+    with (DATA / "opt" / "provision.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if stamp.exists() and all(
+                stamp.stat().st_mtime >= f.stat().st_mtime for f in inputs):
+            return
+        build()
+        stamp.touch()
+
+
+def use_venv():
+    ENV["VIRTUAL_ENV"] = str(VENV)
+    ENV["PATH"] = f"{VENV / 'bin'}:{ENV['PATH']}"
+
+
+# -- make: the project has its own `make agent-test` or `make test` -------
+
+MAKEFILE = next((p for p in map(ROOT.joinpath, ("Makefile", "makefile"))
+                 if p.is_file()), None)
+MAKE_TEXT = MAKEFILE.read_text(errors="replace") if MAKEFILE else ""
+
+
+def make_target(name):
+    return re.search(rf"^{name}\s*:(?!=)", MAKE_TEXT, re.M)
+
+
+def make_provision():
+    if not make_target("venv"):
+        return
+    if "$(VENV)" not in MAKE_TEXT:
+        die(2, "the Makefile venv target ignores $(VENV), so it would "
+               "write the host's venv/. Make it use VENV.")
+    use_venv()
+    provision_once([MAKEFILE],
+                   lambda: run(["make", "venv", f"VENV={VENV}"], fail=2))
+
+
+def make_test(args):
+    run(["make", "agent-test" if make_target("agent-test") else "test"])
+
+
+# -- python: pyproject.toml / setup.py / requirements*.txt + tests/ -------
+
+PACKAGE = [ROOT / n for n in ("pyproject.toml", "setup.py", "setup.cfg")]
+REQUIREMENTS = [ROOT / n for n in ("requirements.txt", "requirements_dev.txt")]
+
+
+def python_provision():
+    use_venv()
+    pip = [str(VENV / "bin" / "python"), "-m", "pip", "install"]
+    package = [f for f in PACKAGE if f.exists()]
+    requirements = [f for f in REQUIREMENTS if f.exists()]
+
+    def build():
+        run([sys.executable, "-m", "venv", str(VENV)], fail=2)
+        run([*pip, "--upgrade", "pip", "setuptools"], fail=2)
+        if package:
+            run([*pip, "-e", ".[dev,test]"], fail=2)
+        elif requirements:
+            run([*pip, "--upgrade", *[a for f in requirements
+                                      for a in ("-r", f.name)]], fail=2)
+        run([*pip, "pytest-reportlog"], fail=2)  # --report-log=FILE: JSON
+
+    # This script is an input too, so a changed install list is applied.
+    provision_once(package + requirements + [Path(__file__)], build)
+
+
+def python_test(args):
+    if FULL:  # every test; also forget where the stepwise runs stopped
+        (ROOT / ".pytest_cache" / "v" / "cache" / "stepwise").unlink(
+            missing_ok=True)
+        run(["pytest", "-svvv", "tests", *args])
+    else:
+        run(["pytest", "-svvv", "--sw", "tests", *args])
+
+
+# -- rust (stub, untested) -------------------------------------------------
+
+def rust_provision():
+    ENV["CARGO_TARGET_DIR"] = str(DATA / "opt" / "cargo-target")
+    run(["cargo", "fetch"], fail=2)
+
+
+def rust_test(args):
+    run(["cargo", "test", *args])
+
+
+# First one whose check is true wins: (check, provision, test)
+HARNESSES = [
+    (lambda: make_target("agent-test") or make_target("test"),
+     make_provision, make_test),
+    (lambda: any(f.exists() for f in PACKAGE + REQUIREMENTS)
+     and (ROOT / "tests").is_dir(),
+     python_provision, python_test),
+    (lambda: (ROOT / "Cargo.toml").exists(), rust_provision, rust_test),
+]
+
+
+def main():
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    (DATA / "opt").mkdir(exist_ok=True)
+    (DATA / ".gitignore").write_text("*\n")
+    for old in LOG.parent.glob("*.log"):  # keep two days of logs
+        if time.time() - old.stat().st_mtime > 2 * 86400:
+            old.unlink()
+
+    for applies, provision, test in HARNESSES:
+        if applies():
+            provision()
+            test(ARGS)
+            say("agent-test: PASSED")
+            say("\n".join(last_output(3)))
+            say(f"log: {LOG.relative_to(ROOT)}")
+            return
+    die(2, "no make agent-test / make test target, and no Python project "
+           "with tests/.", verdict="NOTHING TO RUN")
+
+
+main()
