@@ -2,6 +2,7 @@ import argparse
 import io
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -199,7 +200,9 @@ def _start_mcp_server(
     return proc, Path(log_path)
 
 
-def _claude_config(mcp: Optional[tuple[int, str]]) -> str:
+def _claude_config(
+    mcp: Optional[tuple[int, str]], workdir: str = "/project"
+) -> str:
     config = {
         # Skips the first-launch wizard (theme picker, trust dialog,
         # login screen), which otherwise runs unconditionally whenever
@@ -210,6 +213,7 @@ def _claude_config(mcp: Optional[tuple[int, str]]) -> str:
         # (see _run), not the host path — always safe to pre-trust.
         "projects": {
             "/project": {"hasTrustDialogAccepted": True},
+            workdir: {"hasTrustDialogAccepted": True},
         },
         "mcpServers": {
             "semble": {"type": "stdio", "command": "semble", "args": []},
@@ -367,7 +371,91 @@ def _gitconfig(project_dir: Path) -> str:
     return "[user]\n" + "\n".join(lines) + "\n" if lines else ""
 
 
-def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
+_WORKTREES_DIR = ".claude/worktrees"
+# Git 2.48 added relative worktree links (doc/worktrees.md).
+_MIN_GIT = (2, 48)
+
+
+def _git(project_dir: Path, *args: str) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=project_dir, capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        sys.exit("error: git not found on the host")
+
+
+def _git_checked(project_dir: Path, *args: str) -> str:
+    r = _git(project_dir, *args)
+    if r.returncode:
+        detail = (r.stderr or r.stdout).strip()
+        sys.exit(f"error: git {' '.join(args)} failed: {detail}")
+    return r.stdout.strip()
+
+
+def _check_git_version(project_dir: Path) -> None:
+    out = _git_checked(project_dir, "--version")
+    m = re.search(r"(\d+)\.(\d+)", out)
+    if not m or (int(m[1]), int(m[2])) < _MIN_GIT:
+        need = ".".join(map(str, _MIN_GIT))
+        sys.exit(
+            f"error: --worktree needs git >= {need} on the host "
+            f"(relative worktree links), found: {out}"
+        )
+
+
+def _ignore_worktrees(project_dir: Path) -> None:
+    # info/exclude, not .gitignore: nothing tracked gets modified.
+    exclude = project_dir / ".git" / "info" / "exclude"
+    entry = f"/{_WORKTREES_DIR}/"
+    existing = exclude.read_text() if exclude.exists() else ""
+    if entry not in existing.splitlines():
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        sep = "" if not existing or existing.endswith("\n") else "\n"
+        exclude.write_text(f"{existing}{sep}{entry}\n")
+
+
+def _prepare_worktree(project_dir: Path, branch: str) -> str:
+    """Create the worktree for `branch` if needed; return its path
+    inside the container."""
+    if not (project_dir / ".git").is_dir():
+        sys.exit(
+            f"error: {project_dir} is not the root of a git repository"
+        )
+    _check_git_version(project_dir)
+    if _git(project_dir, "check-ref-format", "--branch", branch).returncode:
+        sys.exit(f"error: invalid branch name: {branch}")
+
+    # Before anything creates a worktree, or links come out absolute
+    # and only resolve on one side of the mount.
+    _git_checked(
+        project_dir, "config", "worktree.useRelativePaths", "true"
+    )
+    _git_checked(project_dir, "worktree", "repair", "--relative-paths")
+    _ignore_worktrees(project_dir)
+
+    rel = f"{_WORKTREES_DIR}/{branch.replace('/', '-')}"
+    if not (project_dir / rel).exists():
+        exists = _git(
+            project_dir, "show-ref", "--verify", "--quiet",
+            f"refs/heads/{branch}",
+        ).returncode == 0
+        add = ["worktree", "add", "--relative-paths"]
+        add += [rel, branch] if exists else ["-b", branch, rel]
+        _git_checked(project_dir, *add)
+        print(f"Created worktree {rel} on branch {branch}", flush=True)
+    return f"/project/{rel}"
+
+
+def _run(
+    project_dir: Path,
+    image: str,
+    use_mcp: bool,
+    worktree: Optional[str] = None,
+) -> None:
+    workdir = "/project"
+    if worktree:
+        workdir = _prepare_worktree(project_dir, worktree)
     session_id = uuid.uuid4().hex
     mcp_proc = None
     mcp_log = None
@@ -401,7 +489,7 @@ def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
 
     try:
         files: _Files = {
-            ".claude.json": _text(_claude_config(mcp)),
+            ".claude.json": _text(_claude_config(mcp, workdir)),
             ".claude/settings.json": _text(_settings()),
             ".claude/CLAUDE.md": _text(_SANDBOX_RULES.read_text()),
             ".claude/statusline.sh": _file(_STATUSLINE),
@@ -415,7 +503,7 @@ def _run(project_dir: Path, image: str, use_mcp: bool) -> None:
         cmd = [
             "podman", "create", "--rm", "-it", "--name", name,
             "-v", f"{project_dir}:/project",
-            "--workdir", "/project",
+            "--workdir", workdir,
         ]
         if sys.platform == "linux":
             # Rootless Podman maps the container's claude user to a
@@ -504,6 +592,15 @@ def main():
             "its session-scoped container tools (disabled by default)"
         ),
     )
+    parser.add_argument(
+        "--worktree",
+        metavar="BRANCH",
+        help=(
+            "Work in .claude/worktrees/<branch> (created if missing, "
+            "on a new branch or the existing one) instead of the "
+            "project root"
+        ),
+    )
     args = parser.parse_args()
 
     project_dir = Path(args.project_dir).resolve()
@@ -533,4 +630,4 @@ def main():
     if not _TOKEN_FILE.exists():
         _login(image)
 
-    _run(project_dir, image, args.mcp_podman)
+    _run(project_dir, image, args.mcp_podman, args.worktree)
